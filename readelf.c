@@ -13,6 +13,7 @@ Elf64_Shdr *elf64_sheaders;
 static int is_32bit_elf;
 static int is_little_endian;
 static char string_table[MAXBUFSIZE];
+static unsigned int string_table_size = 0;
 
 void die(char * msg)
 {
@@ -186,6 +187,24 @@ void read_header(FILE *elf_file)
         printf("  Number of section headers: 0x%x\n", elf32_header.e_shnum);
         printf("  Section header string table index: 0x%x\n", elf32_header.e_shstrndx);
         printf(" \n");
+    } else {
+        if (fread (&elf64_header, sizeof(Elf64_Ehdr), 1, elf_file) !=1) {
+            die("fread error");
+        }
+        get_elf_type(elf64_header.e_type, buf);
+        printf("  Type: %s\n", buf);
+        get_elf_machine_name(elf64_header.e_machine, buf);
+        printf("  Machine: %s\n", buf);
+        printf("  Entry point address: 0x%llx\n", elf64_header.e_entry);
+        printf("  Start of program headers: 0x%llx\n", elf64_header.e_phoff);
+        printf("  Start of section headers: 0x%llx\n", elf64_header.e_shoff);
+        printf("  Size of this header: %u (bytes)\n", elf64_header.e_ehsize);
+        printf("  Size of program headers: %u (bytes)\n", elf64_header.e_phentsize);
+        printf("  Number of program headers: %u\n", elf64_header.e_phnum);
+        printf("  Size of section headers: %u (bytes)\n", elf64_header.e_shentsize);
+        printf("  Number of section headers: %u\n", elf64_header.e_shnum);
+        printf("  Section header string table index: %u\n", elf64_header.e_shstrndx);
+        printf(" \n");
     }
     return;
 }
@@ -230,14 +249,180 @@ void read_sections(FILE *elf_file)
         char *p_stringt = string_table;
         printf("Section headers:\n");
         for (i=0; i < elf32_header.e_shnum; i++){
-            printf("index : %d \t name: %s \t addr 0x%x \t offset 0x%x\n",
+            printf("index : %d \t name: %s \t addr 0x%x \t offset 0x%x \t size 0x%x\n",
                    i,
                    p_stringt + elf32_sheaders[i].sh_name,
                    elf32_sheaders[i].sh_addr,
                    elf32_sheaders[i].sh_offset);
         }/* end for */
+        free(elf32_sheaders);
+    } else {
+        elf64_sheaders = (Elf64_Shdr *) malloc(sizeof(Elf64_Shdr)*elf64_header.e_shnum);
+        /* jump to section headers entry */
+        if (fseek(elf_file, elf64_header.e_shoff, SEEK_SET) == -1){
+            die("lseek error");
+        }
+        /* load all setction headers */
+        if (fread (elf64_sheaders,
+                   sizeof(Elf64_Ehdr),
+                   elf64_header.e_shnum,
+                   elf_file) != elf64_header.e_shnum){
+            die("elf64_sheader fread error");
+        }
         
-    }/* end if */
+        for (i = 0;i < elf64_header.e_shnum; i++){
+            /* read sting table section */
+            if (elf64_header.e_shstrndx == i){
+                if (fseek(elf_file,
+                          elf64_sheaders[i].sh_addr + elf64_sheaders[i].sh_offset,
+                          SEEK_SET) == -1){
+                    die("lseek error");
+                }
+                string_table_size = elf64_sheaders[i].sh_size;
+                /* load string table */
+                if (fread(string_table,
+                          elf64_sheaders[i].sh_size,
+                          1,
+                          elf_file) != 1){
+                    die("fread error");
+                }
+                break;
+            }/* end if */
+        }/* end for */
+        
+        unsigned int symtab_shndx = 0; /* symtab section index*/
+        unsigned int strtab_shndx = 0;
+        char * dynamic_strings;
+        unsigned long dynamic_strings_length = 0;
+        /* read each section */
+        char *p_stringt = string_table;
+        printf("Section headers:\n");
+        for (i=0; i < elf64_header.e_shnum; i++){
+            printf("index : %d \t name: %s \t addr 0x%x \t offset 0x%x  \t size %d\n",
+                   i,
+                   p_stringt + elf64_sheaders[i].sh_name,
+                   elf64_sheaders[i].sh_addr,
+                   elf64_sheaders[i].sh_offset,
+                   elf64_sheaders[i].sh_size);
+            if (elf64_sheaders[i].sh_type == SHT_SYMTAB) {
+                symtab_shndx = i;
+                #ifdef DEBUG
+                printf("find symtab at index %d\n", i);
+                #endif
+            } else if (elf64_sheaders[i].sh_type == SHT_STRTAB) {
+                strtab_shndx = i;
+            }
+            
+        }/* end for */
+        printf("\n");
+        /* read strtab dynamic_strings */
+        if (strtab_shndx) {
+            Elf64_Shdr *strtab_shdr = &elf64_sheaders[strtab_shndx];
+            dynamic_strings_length = strtab_shdr->sh_size;
+            dynamic_strings = (char *) malloc(sizeof(char)*dynamic_strings_length);
+            if (fseek(elf_file, strtab_shdr->sh_offset, SEEK_SET) == -1){
+                free(dynamic_strings);
+                die("lseek error");
+            }
+            /* load all setction headers */
+            if (fread (dynamic_strings,
+                       sizeof(char),
+                       dynamic_strings_length,
+                       elf_file) != dynamic_strings_length){
+                free(dynamic_strings);
+                die("symtab fread error");
+            }
+            
+        }
+        
+        /* read symtab section */
+        if (symtab_shndx) {
+            Elf64_Shdr *symtab_section = &elf64_sheaders[symtab_shndx];
+            unsigned long symnum = symtab_section->sh_size / symtab_section->sh_entsize;
+#ifdef DEBUG
+            printf("%d %d\n", symtab_section->sh_size, symtab_section->sh_entsize);
+            printf("%d\n", symnum);
+#endif
+            Elf64_Sym *syms = (Elf64_Sym *)malloc(sizeof(Elf64_Sym)*symnum);
+            if (fseek(elf_file, symtab_section->sh_offset, SEEK_SET) == -1){
+                free(syms);
+                die("lseek error");
+            }
+            /* load all setction headers */
+            if (fread (syms,
+                       sizeof(Elf64_Sym),
+                       symnum,
+                       elf_file) != symnum){
+                free(syms);
+                die("symtab fread error");
+            }
+            printf("Symbol table '.symtab' contains %lu entries: \n", symnum);
+            printf("Num:\tValue\t\tSize\tType\tBind\tVis\t\tName\n");
+            unsigned long idx;
+            for (idx = 0; idx < symnum; idx++){
+                char *type_str = "UNKNOWN";
+                char *bind_str = "UNKNOWN";
+                char *vis_str = "UNKNOWN";
+                unsigned char type = ELF64_ST_TYPE(syms[idx].st_info);
+                unsigned char bind = ELF64_ST_BIND(syms[idx].st_info);
+                unsigned char vis = syms[idx].st_other;
+                switch (type) {
+                case(STT_FUNC):
+                    type_str = "FUNC";
+                    break;
+                case(STT_OBJECT):
+                    type_str = "OBJECT";
+                    break;
+                case(STT_FILE):
+                    type_str = "FILE";
+                    break;
+                default:
+                    type_str = "UNKNOWN";
+                }
+
+                switch (bind) {
+                case(STB_LOCAL):
+                    bind_str = "LOCAL";
+                    break;
+                case(STB_GLOBAL):
+                    bind_str = "GLOBAL";
+                    break;
+                case(STB_WEAK):
+                    bind_str = "WEAK";
+                    break;
+                default:
+                    type_str = "UNKNOWN";
+                }
+                switch(vis) {
+                case(0):
+                    vis_str = "DEFAULT";
+                    break;
+                case(2):
+                    vis_str = "HIDDEN";
+                    break;
+                default:
+                    vis_str = "UNKNOWN";
+                }
+                
+                
+                char *name = "UNKNOWN";
+                if (syms[idx].st_name < dynamic_strings_length) {
+                    name = dynamic_strings + syms[idx].st_name;
+                }
+                printf("%lu:\t%x\t%llu\t%s\t%s\t%s\t\t%s\n",
+                       idx,
+                       syms[idx].st_value,
+                       syms[idx].st_size,
+                       type_str,
+                       bind_str,
+                       vis_str,
+                       name);
+            }
+            free(dynamic_strings);
+            free(syms);
+        }
+        free(elf64_sheaders);
+    }
 }
 
 
@@ -250,18 +435,4 @@ int main(int argc, char** argv)
     read_sections(elf_file);
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
