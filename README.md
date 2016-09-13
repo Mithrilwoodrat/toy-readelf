@@ -1,5 +1,5 @@
 #toy-readelf
-Write for learning purpose
+for learning purpose
 
 ## refrences
 * [readelf.c](http://www.opensource.apple.com/source/gdb/gdb-1515/src/binutils/readelf.c)
