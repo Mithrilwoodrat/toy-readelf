@@ -357,66 +357,98 @@ void read_sections(FILE *elf_file)
                 die("symtab fread error");
             }
             printf("Symbol table '.symtab' contains %lu entries: \n", symnum);
-            printf("Num:\tValue\t\tSize\tType\tBind\tVis\t\tName\n");
+            printf("Num:   Value\t\tSize\tType\tBind\tVis\tNdx\tName\n");
             unsigned long idx;
             for (idx = 0; idx < symnum; idx++){
-                char *type_str = "UNKNOWN";
-                char *bind_str = "UNKNOWN";
-                char *vis_str = "UNKNOWN";
+                printf("%3lu:%016lx%4llu",
+                       idx,
+                       syms[idx].st_value,
+                       syms[idx].st_size);
+                
+                char buf[100];
+                char * pbuf = buf;
+                
                 unsigned char type = ELF64_ST_TYPE(syms[idx].st_info);
-                unsigned char bind = ELF64_ST_BIND(syms[idx].st_info);
-                unsigned char vis = syms[idx].st_other;
                 switch (type) {
-                case(STT_FUNC):
-                    type_str = "FUNC";
+                case(STT_NOTYPE):
+                    pbuf = "NOTYPE";
                     break;
                 case(STT_OBJECT):
-                    type_str = "OBJECT";
+                    pbuf = "OBJECT";
+                    break;
+                case(STT_FUNC):
+                    pbuf = "FUNC";
                     break;
                 case(STT_FILE):
-                    type_str = "FILE";
+                    pbuf = "FILE";
+                    break;
+                case(STT_SECTION):
+                    pbuf = "SECTION";
                     break;
                 default:
-                    type_str = "UNKNOWN";
+                    pbuf = "UNKNOWN";
                 }
+                
+                printf("%8s", pbuf);
+                
+                unsigned char bind = ELF64_ST_BIND(syms[idx].st_info);
 
                 switch (bind) {
                 case(STB_LOCAL):
-                    bind_str = "LOCAL";
+                    pbuf = "LOCAL";
                     break;
                 case(STB_GLOBAL):
-                    bind_str = "GLOBAL";
+                    pbuf = "GLOBAL";
                     break;
                 case(STB_WEAK):
-                    bind_str = "WEAK";
+                    pbuf = "WEAK";
                     break;
                 default:
-                    type_str = "UNKNOWN";
+                    pbuf = "UNKNOWN";
                 }
+                
+                printf("%8s", pbuf);
+                
+                unsigned char vis = syms[idx].st_other;
                 switch(vis) {
                 case(0):
-                    vis_str = "DEFAULT";
+                    pbuf = "DEFAULT";
                     break;
                 case(2):
-                    vis_str = "HIDDEN";
+                    pbuf = "HIDDEN";
                     break;
                 default:
-                    vis_str = "UNKNOWN";
+                    pbuf = "UNKNOWN";
                 }
                 
+                printf("%10s", pbuf);
+                unsigned int ndx= syms[idx].st_shndx;
+                //printf("%lx\t", ndx);
+                switch(ndx) {
+                case(SHN_ABS):
+                    pbuf = "ABS";
+                    printf("%6s\t", pbuf);
+                    break;
+                case(SHN_COMMON):
+                    pbuf = "COMMON";
+                    printf("%6s\t", pbuf);
+                    break;
+                case(SHN_UNDEF):
+                    pbuf = "UND";
+                    printf("%6s\t", pbuf);
+                    break;
+                default:
+                    printf("%6d\t", ndx);
+                }                
                 
-                char *name = "UNKNOWN";
                 if (syms[idx].st_name < dynamic_strings_length) {
-                    name = dynamic_strings + syms[idx].st_name;
+                    pbuf = dynamic_strings + syms[idx].st_name;
+                } else {
+                    pbuf = "UNKNOWN";
                 }
-                printf("%lu:\t%x\t%llu\t%s\t%s\t%s\t\t%s\n",
-                       idx,
-                       syms[idx].st_value,
-                       syms[idx].st_size,
-                       type_str,
-                       bind_str,
-                       vis_str,
-                       name);
+                printf("%s\n", pbuf);
+                
+                
             }
             free(dynamic_strings);
             free(syms);
