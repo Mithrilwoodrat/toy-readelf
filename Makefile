@@ -17,3 +17,5 @@ test32: test/hello32
 test64: test/hello64
 	bin/readelf test/hello64
 
+clean:
+	rm -f bin/* test/hello64 test/hello32
